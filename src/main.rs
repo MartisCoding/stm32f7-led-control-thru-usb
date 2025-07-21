@@ -14,7 +14,7 @@ use {defmt_rtt as _, panic_probe as _};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::{bind_interrupts, Config, Peri};
-use embassy_stm32::gpio::{OutputType};
+use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 
 use embassy_stm32::pac::rcc::vals::{Plln, Ppre};
 use embassy_stm32::peripherals;
@@ -29,6 +29,7 @@ use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_time::Timer;
 use embassy_usb::driver::EndpointError;
 use fmt::info;
 
@@ -48,20 +49,22 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
-            freq: Hertz(16_000_000),
+            freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
         config.rcc.pll_src = PllSource::HSE;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV8,
-            mul: Plln::MUL96,
+            prediv: PllPreDiv::DIV4,
+            mul: Plln::MUL216,
             divp: Some(PllPDiv::DIV2),
-            divq: Some(PllQDiv::DIV4),
+            divq: Some(PllQDiv::DIV9),
             divr: None,
         });
         config.rcc.ahb_pre = DIV1;
-        config.rcc.apb1_pre = Ppre::DIV1;
-        config.rcc.apb2_pre = Ppre::DIV1;
+        config.rcc.apb1_pre = Ppre::DIV4;
+        config.rcc.apb2_pre = Ppre::DIV2;
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
     }
     let p = embassy_stm32::init(config);
 
@@ -112,6 +115,12 @@ async fn main(spawner: Spawner) {
     let argb = ARGBLed::new_ch1(p.TIM1, p.PE9, Hertz(800_000));
     
     info!("Starting...");
+    let mut led = Output::new(p.PB7, Level::High, Speed::Low);
+    for i in 0..20 {
+        led.toggle();
+        Timer::after_millis(200).await;
+    }
+    led.set_low();
     spawner.spawn(argb_task(argb, p.DMA2_CH5)).unwrap();
     join(usb_fut, rgb_fut).await;
 }
